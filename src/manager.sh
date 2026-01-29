@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# MANAGER: TOX1C SSH-TUNNEL | PRO EDITION
+# MANAGER: TOX1C SSH-TUNNEL | PRO EDITION (FINAL POLISH)
 # ==============================================================================
 
 # --- CONFIGURATION ---
@@ -16,6 +16,7 @@ readonly C_GREEN='\033[0;32m'
 readonly C_YELLOW='\033[1;33m'
 readonly C_BLUE='\033[0;34m'
 readonly C_CYAN='\033[0;36m'
+readonly C_PURPLE='\033[0;35m'
 readonly C_GRAY='\033[1;30m'
 readonly C_WHITE='\033[1;37m'
 readonly C_NC='\033[0m'
@@ -52,18 +53,39 @@ draw_bar() {
     printf "${color}]${C_NC}"
 }
 
+center_text() {
+    # Usage: center_text "Text" "Color" Width
+    local text="$1"
+    local color="$2"
+    local width="${3:-58}" # Default inner width
+    local padding=$(( (width - ${#text}) / 2 ))
+    printf "${color}%*s%s%*s${C_NC}" $padding "" "$text" $padding ""
+    # Handle odd lengths
+    if [[ $(( (width - ${#text}) % 2 )) -ne 0 ]]; then printf " "; fi
+}
+
 # --- UI COMPONENTS ---
 
 draw_header() {
     clear
-    # Static Box - 60 Characters Wide
-    echo -e "${C_CYAN}╔══════════════════════════════════════════════════════════════╗${C_NC}"
-    echo -e "${C_CYAN}║${C_WHITE}                   TOX1C SSH-TUNNEL PRO                   ${C_CYAN}║${C_NC}"
-    echo -e "${C_CYAN}╠══════════════════════════════════════════════════════════════╣${C_NC}"
-    # Calculate padding for Repo URL to center/align it nicely
-    # We just center the repo link for cleanliness
-    echo -e "${C_CYAN}║${C_NC}            GitHub: github.com/${REPO}             ${C_CYAN}║${C_NC}"
-    echo -e "${C_CYAN}╚══════════════════════════════════════════════════════════════╝${C_NC}"
+    # Box Width: 60 chars (Border to Border)
+    # Inner Width: 58 chars
+    
+    echo -e "${C_CYAN}┌──────────────────────────────────────────────────────────┐${C_NC}"
+    
+    # Title Line
+    printf "${C_CYAN}│${C_NC}"
+    center_text "TOX1C SSH-TUNNEL" "${C_WHITE}" 58
+    printf "${C_CYAN}│${C_NC}\n"
+    
+    # Link Line
+    printf "${C_CYAN}│${C_NC}"
+    # We use OSC 8 hyperlink if terminal supports it, otherwise just text
+    # But for safety/compatibility, we just print the clean URL
+    center_text "github.com/${REPO}" "${C_BLUE}" 58
+    printf "${C_CYAN}│${C_NC}\n"
+    
+    echo -e "${C_CYAN}└──────────────────────────────────────────────────────────┘${C_NC}"
 }
 
 # --- MONITORING ENGINE ---
@@ -87,6 +109,7 @@ monitor() {
         fi
         
         # 2. Network Metrics (Snapshot 1)
+        # REAL DATA from Kernel
         local rx1=$(cat /sys/class/net/$INTERFACE/statistics/rx_bytes)
         local tx1=$(cat /sys/class/net/$INTERFACE/statistics/tx_bytes)
         sleep 1
@@ -94,7 +117,7 @@ monitor() {
         local rx2=$(cat /sys/class/net/$INTERFACE/statistics/rx_bytes)
         local tx2=$(cat /sys/class/net/$INTERFACE/statistics/tx_bytes)
         
-        # Calculate Speed (KB/s)
+        # Calculate Speed (KB/s) - Bash integer math is fine here
         local rx_speed=$(( (rx2 - rx1) / 1024 ))
         local tx_speed=$(( (tx2 - tx1) / 1024 ))
         
@@ -129,7 +152,8 @@ monitor() {
         printf " ${C_BLUE}⬆ UPLOAD:${C_NC}   %-6s KB/s\n" "$tx_speed"
         
         # Visual Activity Bar (Sparkline)
-        local bar_len=$(( rx_speed / 100 )) # Scale: 1 char per 100KB
+        # Scaled: 1 block = 50KB/s roughly, max 30 blocks
+        local bar_len=$(( rx_speed / 50 )) 
         [[ $bar_len -gt 30 ]] && bar_len=30
         printf " ${C_GREEN}Activity:${C_NC}   "
         if [[ $bar_len -gt 0 ]]; then printf "%0.s█" $(seq 1 $bar_len); fi
