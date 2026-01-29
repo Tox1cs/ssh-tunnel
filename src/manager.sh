@@ -1,212 +1,241 @@
 #!/bin/bash
 # ==============================================================================
-# MANAGER: TOX1C SSH-TUNNEL (DEV BRANCH)
+# MANAGER: TOX1C SSH-TUNNEL | DASHBOARD
 # ==============================================================================
 
-# CONFIG
-VPN_GROUP="tox1c-users"
-UDPGW_PORT="7300"
-VERSION="2.3-dev"
-GITHUB_REPO="Tox1cs/ssh-tunnel"
-BRANCH="dev"  # We are testing on DEV branch
+# --- CONFIGURATION ---
+readonly VPN_GROUP="tox1c-users"
+readonly VERSION="2.3-PRO"
+readonly REPO="Tox1cs/ssh-tunnel"
+readonly BRANCH="main" # Set to 'main' for release, 'dev' for testing
 
-# THEME
-CYAN='\033[0;36m'; GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; WHITE='\033[1;37m'; NC='\033[0m'
-GRAY='\033[1;30m'
+# --- COLORS ---
+readonly C_RED='\033[0;31m'
+readonly C_GREEN='\033[0;32m'
+readonly C_YELLOW='\033[1;33m'
+readonly C_BLUE='\033[0;34m'
+readonly C_CYAN='\033[0;36m'
+readonly C_GRAY='\033[1;30m'
+readonly C_NC='\033[0m'
 
-# --- SECURITY ---
-check_root() { [[ $EUID -ne 0 ]] && { echo -e "${RED}[!] Run as root.${NC}"; exit 1; } }
+# --- UTILS ---
+
+pause() {
+    echo ""
+    read -rsn1 -p "Press any key to return..."
+    echo ""
+}
 
 validate_input() {
     if [[ ! "$1" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        echo -e "${RED}[!] Error: Invalid characters.${NC}"; pause; return 1
+        echo -e "${C_RED}[!] Error: Invalid characters.${C_NC}"
+        pause
+        return 1
     fi
     return 0
 }
 
-# --- UI ---
-header() {
+# --- UI RENDERING ---
+
+draw_header() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${WHITE}                   TOX1C SSH-TUNNEL                   ${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    # Added Version in GRAY to make it look "small" and subtle
-    echo -e "${CYAN}║${NC}  GitHub: ${CYAN}https://github.com/${GITHUB_REPO}${NC}     ${GRAY}${VERSION}${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+    local title="TOX1C SSH-TUNNEL"
+    local repo_url="github.com/${REPO}"
     
-    HOST=$(hostname)
-    IP=$(curl -s --connect-timeout 2 ifconfig.me)
-    SSH_PORT=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | cut -d' ' -f2 || echo "22")
+    # Dynamic Hardware Info
+    local host=$(hostname)
+    local ip=$(curl -s --connect-timeout 2 ifconfig.me || echo "Offline")
+    local port=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | awk '{print $2}' || echo "22")
     
+    # BBR Check
+    local mode="${C_GRAY}Standard${C_NC}"
     if sysctl net.ipv4.tcp_congestion_control | grep -q "bbr"; then
-        MODE="${GREEN}Turbo (BBR)${NC}"
-    else
-        MODE="${GRAY}Standard${NC}"
+        mode="${C_GREEN}Turbo (BBR)${C_NC}"
     fi
 
-    echo -e " ${YELLOW}Host:${NC} $HOST  |  ${YELLOW}IP:${NC} $IP"
-    echo -e " ${YELLOW}Mode:${NC} $MODE  |  ${YELLOW}Port:${NC} ${GREEN}$SSH_PORT${NC}"
-    echo -e "${CYAN}──────────────────────────────────────────────────────${NC}"
+    # The Box (Width 60)
+    echo -e "${C_CYAN}╔══════════════════════════════════════════════════════════════╗${C_NC}"
+    
+    # Title Centering
+    printf "${C_CYAN}║${C_NC}%*s${C_CYAN}║${C_NC}\n" 60 "$(printf "%*s%s%*s" 20 "" "$title" 22 "")"
+    
+    echo -e "${C_CYAN}╠══════════════════════════════════════════════════════════════╣${C_NC}"
+    
+    # Repo & Version Line
+    # We use printf to ensure the right alignment relative to the border
+    # Border (1) + Space (2) + Label (8) + URL + Padding + Version + Space + Border (1)
+    # Total inner width is 60 chars
+    
+    # Calculate padding
+    local inner_width=60
+    local line_content="  GitHub: ${repo_url}"
+    local ver_content="v${VERSION}  "
+    local padding=$((inner_width - ${#line_content} - ${#ver_content}))
+    
+    printf "${C_CYAN}║${C_NC}%s%*s${C_GRAY}%s${C_NC}${C_CYAN}║${C_NC}\n" "$line_content" $padding "" "$ver_content"
+
+    echo -e "${C_CYAN}╚══════════════════════════════════════════════════════════════╝${C_NC}"
+    
+    # Status Bar
+    echo -e " ${C_YELLOW}HOST:${C_NC} $host   ${C_YELLOW}IP:${C_NC} $ip"
+    echo -e " ${C_YELLOW}MODE:${C_NC} $mode   ${C_YELLOW}PORT:${C_NC} $port"
+    echo -e "${C_CYAN}──────────────────────────────────────────────────────────────${C_NC}"
 }
 
-pause() { echo ""; read -rsn1 -p "Press any key to return..."; }
-
-# --- CORE FUNCTIONS ---
+# --- FUNCTIONS ---
 
 create_user() {
-    header
-    echo -e "${GREEN}[+] CREATE USER${NC}"
+    draw_header
+    echo -e "${C_GREEN}[+] CREATE NEW USER${C_NC}"
     read -p "Username: " u
     validate_input "$u" || return
     
-    if id "$u" &>/dev/null; then echo -e "${RED}[!] User exists.${NC}"; pause; return; fi
+    if id "$u" &>/dev/null; then echo -e "${C_RED}[!] User already exists.${C_NC}"; pause; return; fi
 
-    read -p "Password (Random): " p
+    read -p "Password (Enter for Random): " p
     [[ -z "$p" ]] && p=$(openssl rand -base64 12)
     
-    read -p "Expiry Days (30): " days
+    read -p "Expiry Days (Default 30): " days
     [[ -z "$days" ]] && days=30
     
     useradd -m -s /usr/sbin/nologin -G "$VPN_GROUP" "$u"
     echo "$u:$p" | chpasswd
-    EXP_DATE=$(date -d "+$days days" +%Y-%m-%d)
-    chage -E "$EXP_DATE" "$u"
     
-    echo -e "\n${GREEN}✔ User Created.${NC}"
-    echo -e "User:    ${WHITE}$u${NC}"
-    echo -e "Pass:    ${WHITE}$p${NC}"
-    echo -e "Expires: ${YELLOW}$EXP_DATE${NC}"
+    local exp_date=$(date -d "+$days days" +%Y-%m-%d)
+    chage -E "$exp_date" "$u"
+    
+    echo -e "\n${C_GREEN}✔ User Created Successfully.${C_NC}"
+    echo -e "Username: ${C_YELLOW}$u${C_NC}"
+    echo -e "Password: ${C_YELLOW}$p${C_NC}"
+    echo -e "Expires:  ${C_YELLOW}$exp_date${C_NC}"
     pause
 }
 
 remove_user() {
-    header
-    echo -e "${RED}[-] DELETE USER${NC}"
+    draw_header
+    echo -e "${C_RED}[-] REMOVE USER${C_NC}"
+    echo -e "${C_GRAY}Active Users:${C_NC}"
     grep "$VPN_GROUP" /etc/group | cut -d: -f4 | tr ',' '\n' | sed '/^$/d' | sed 's/^/ - /'
     echo ""
-    read -p "Username: " u
+    read -p "Username to delete: " u
     validate_input "$u" || return
     
     if id -nG "$u" 2>/dev/null | grep -qw "$VPN_GROUP"; then
         pkill -u "$u"
         userdel -r "$u"
-        echo -e "${GREEN}✔ Deleted.${NC}"
+        echo -e "${C_GREEN}✔ User deleted.${C_NC}"
     else
-        echo -e "${RED}[!] Not found.${NC}"
+        echo -e "${C_RED}[!] User not found in VPN group.${C_NC}"
     fi
     pause
 }
 
-lock_unlock_user() {
-    header
-    echo -e "${YELLOW}[!] LOCK / UNLOCK USER${NC}"
-    for u in $(grep "$VPN_GROUP" /etc/group | cut -d: -f4 | tr ',' '\n'); do
-        if [[ -n "$u" ]]; then
-            STATUS=$(passwd -S "$u" | awk '{print $2}')
-            [[ "$STATUS" == "L" ]] && STATE="${RED}LOCKED${NC}" || STATE="${GREEN}ACTIVE${NC}"
-            echo -e " - ${WHITE}$u${NC} [$STATE]"
-        fi
+lock_unlock() {
+    draw_header
+    echo -e "${C_YELLOW}[!] LOCK / UNLOCK ACCESS${C_NC}"
+    
+    local user_list=$(grep "$VPN_GROUP" /etc/group | cut -d: -f4 | tr ',' '\n')
+    for u in $user_list; do
+        [[ -z "$u" ]] && continue
+        local status=$(passwd -S "$u" | awk '{print $2}')
+        local state="${C_GREEN}ACTIVE${C_NC}"
+        [[ "$status" == "L" ]] && state="${C_RED}LOCKED${C_NC}"
+        echo -e " - ${C_YELLOW}$u${C_NC} [$state]"
     done
+    
     echo ""
     read -p "Username: " u
     validate_input "$u" || return
 
     if ! id -nG "$u" 2>/dev/null | grep -qw "$VPN_GROUP"; then
-        echo -e "${RED}[!] Not a VPN user.${NC}"; pause; return
+        echo -e "${C_RED}[!] Not a VPN user.${C_NC}"; pause; return
     fi
 
-    STATUS=$(passwd -S "$u" | awk '{print $2}')
-    if [[ "$STATUS" == "L" ]]; then
+    local status=$(passwd -S "$u" | awk '{print $2}')
+    if [[ "$status" == "L" ]]; then
         passwd -u "$u" >/dev/null 2>&1
-        echo -e "${GREEN}✔ User Unlocked.${NC}"
+        echo -e "${C_GREEN}✔ User Unlocked.${C_NC}"
     else
         passwd -l "$u" >/dev/null 2>&1
         pkill -u "$u"
-        echo -e "${RED}✔ User Locked.${NC}"
+        echo -e "${C_RED}✔ User Locked & Sessions Killed.${C_NC}"
     fi
     pause
 }
 
-change_port() {
-    header
-    echo -e "${YELLOW}[!] STEALTH MODE: CHANGE PORT${NC}"
-    echo -e "Current: $SSH_PORT"
-    read -p "New Port: " new_p
+system_update() {
+    draw_header
+    echo -e "${C_YELLOW}[*] SYSTEM UPDATE${C_NC}"
+    echo -e "Checking for updates from Branch: ${C_CYAN}${BRANCH}${C_NC}"
     
-    if [[ ! "$new_p" =~ ^[0-9]+$ ]] || [ "$new_p" -lt 1 ] || [ "$new_p" -gt 65535 ]; then
-        echo -e "${RED}[!] Invalid Port.${NC}"; pause; return
+    echo -e "\nDownloading..."
+    local tmp_dir="/tmp/tox1c_updater"
+    rm -rf "$tmp_dir"
+    
+    if git clone -b "$BRANCH" "https://github.com/${REPO}.git" "$tmp_dir" --quiet; then
+        echo -e "${C_GREEN}✔ Download Complete.${C_NC}"
+        echo -e "Installing..."
+        chmod +x "$tmp_dir/install.sh"
+        (cd "$tmp_dir" && bash install.sh)
+        rm -rf "$tmp_dir"
+        echo -e "${C_GREEN}✔ Update Complete. Restarting Dashboard...${C_NC}"
+        sleep 2
+        exec "$0"
+    else
+        echo -e "${C_RED}[!] Connection Failed.${C_NC}"
+        pause
     fi
+}
 
-    echo -e "\n${YELLOW}[*] Updating...${NC}"
+change_port() {
+    draw_header
+    echo -e "${C_YELLOW}[!] CHANGE SSH PORT (Stealth Mode)${C_NC}"
+    local current=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | awk '{print $2}' || echo "22")
+    echo -e "Current Port: ${C_GREEN}$current${C_NC}"
+    
+    read -p "New Port (1024-65535 recommended): " new_p
+    if [[ ! "$new_p" =~ ^[0-9]+$ ]] || [ "$new_p" -lt 1 ] || [ "$new_p" -gt 65535 ]; then
+        echo -e "${C_RED}[!] Invalid Port.${C_NC}"; pause; return
+    fi
+    
+    echo -e "Updating configuration..."
     if grep -q "^Port " /etc/ssh/sshd_config; then
         sed -i "s/^Port .*/Port $new_p/" /etc/ssh/sshd_config
     else
         echo "Port $new_p" >> /etc/ssh/sshd_config
     fi
-
+    
     ufw allow "$new_p"/tcp >/dev/null
-    ufw delete allow "$SSH_PORT"/tcp >/dev/null 2>&1
+    ufw delete allow "$current"/tcp >/dev/null 2>&1
     ufw reload >/dev/null
     systemctl restart ssh
     
-    echo -e "${GREEN}✔ Success! Port changed to $new_p.${NC}"
+    echo -e "${C_GREEN}✔ Success. SSH is now on port $new_p.${C_NC}"
     pause
 }
 
 monitor() {
-    header
-    echo -e "${YELLOW}[*] LIVE MONITOR (Ctrl+C to Stop)${NC}"
-    watch -n 1 -c "ps -eo user,cmd | grep 'sshd: ' | grep -v 'root' | grep -v 'grep'; echo ''; vnstat -tr 2"
-}
-
-# --- UPDATE ENGINE (DEV) ---
-update_system() {
-    header
-    echo -e "${YELLOW}[*] SYSTEM UPDATE (DEV BRANCH)${NC}"
-    echo -e "This will pull the latest code from the '${BRANCH}' branch."
-    read -p "Continue? (y/n): " confirm
-    [[ "$confirm" != "y" ]] && return
-
-    echo -e "\n${CYAN}>>> Connecting to GitHub...${NC}"
-    
-    TMP_DIR="/tmp/tox1c_updater"
-    rm -rf "$TMP_DIR"
-    
-    # Clone the DEV branch specifically
-    if git clone -b "$BRANCH" "https://github.com/${GITHUB_REPO}.git" "$TMP_DIR"; then
-        echo -e "${GREEN}✔ Download Complete.${NC}"
-        echo -e "Installing Update..."
-        
-        chmod +x "$TMP_DIR/install.sh"
-        
-        # Run the installer from the temp dir
-        # We use bash explicitly to avoid permission issues
-        (cd "$TMP_DIR" && bash install.sh)
-        
-        rm -rf "$TMP_DIR"
-        echo -e "\n${GREEN}✔ UPDATE SUCCESSFUL! Restarting...${NC}"
-        sleep 2
-        exec "$0"
-    else
-        echo -e "${RED}[!] Error: Could not connect to GitHub.${NC}"
-        echo -e "Check your internet connection or git installation."
-        pause
-    fi
+    draw_header
+    echo -e "${C_YELLOW}[*] LIVE TRAFFIC MONITOR${C_NC} (Ctrl+C to Exit)"
+    # Show active SSH connections and vnstat traffic
+    watch -n 1 -c "echo 'ACTIVE CONNECTIONS:'; ps -eo user,cmd | grep 'sshd: ' | grep -v 'root' | grep -v 'grep' | awk '{print \$1}'; echo ''; vnstat -tr 2"
 }
 
 # --- MENUS ---
+
 menu_users() {
     while true; do
-        header
+        draw_header
         echo " 1) Create User"
         echo " 2) Remove User"
         echo " 3) Lock/Unlock User"
         echo " 0) Back"
-        read -p " Select: " o
-        case $o in
+        echo ""
+        read -p " Select: " opt
+        case $opt in
             1) create_user ;;
             2) remove_user ;;
-            3) lock_unlock_user ;;
+            3) lock_unlock ;;
             0) return ;;
         esac
     done
@@ -214,28 +243,31 @@ menu_users() {
 
 menu_system() {
     while true; do
-        header
+        draw_header
         echo " 1) Change SSH Port"
         echo " 2) Monitor Traffic"
-        echo " 8) Update System (Dev)"
+        echo " 8) Update System"
         echo " 0) Back"
-        read -p " Select: " o
-        case $o in
+        echo ""
+        read -p " Select: " opt
+        case $opt in
             1) change_port ;;
             2) monitor ;;
-            8) update_system ;;
+            8) system_update ;;
             0) return ;;
         esac
     done
 }
 
-# --- MAIN ---
-check_root
+# --- ENTRY POINT ---
+[[ $EUID -ne 0 ]] && { echo -e "${C_RED}[!] Root required.${C_NC}"; exit 1; }
+
 while true; do
-    header
+    draw_header
     echo " 1) User Management"
     echo " 2) System Settings"
     echo " 0) Exit"
+    echo ""
     read -p " Select: " opt
     case $opt in
         1) menu_users ;;
