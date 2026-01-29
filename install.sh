@@ -1,11 +1,49 @@
 #!/bin/bash
 # ==============================================================================
-# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Fixed)
+# PROJECT: Tox1c SSH-Tunnel | Enterprise Installer
 # AUTHOR:  Tox1c
-# TARGET:  Dev Branch
+# VERSION: 3.1
 # ==============================================================================
 
 set -u
+
+# --- BOOTSTRAP ENGINE (The Magic) ---
+# This block handles the "curl | bash" logic
+if [ ! -d ".git" ] && [ ! -f "src/manager.sh" ]; then
+    echo ">>> Bootstrapping Installer..."
+    
+    # 1. Ensure Root
+    if [ "$EUID" -ne 0 ]; then echo "Error: Run as root."; exit 1; fi
+    
+    # 2. Install Git & Basic Tools (if missing)
+    echo " [*] Installing Git & Curl..."
+    export DEBIAN_FRONTEND=noninteractive
+    if ! command -v git &> /dev/null; then
+        apt-get update -qq >/dev/null 2>&1
+        apt-get install -y -qq git curl >/dev/null 2>&1
+    fi
+    
+    # 3. Clone Repository to Temp
+    TEMP_DIR="/tmp/tox1c-install-$(date +%s)"
+    echo " [*] Downloading Repository..."
+    git clone --quiet --depth=1 https://github.com/Tox1cs/ssh-tunnel.git "$TEMP_DIR" || {
+        echo "Error: Download failed."; exit 1;
+    }
+    
+    # 4. Handover Control
+    # We switch to the downloaded folder and run this script again "locally"
+    chmod +x "$TEMP_DIR/install.sh"
+    cd "$TEMP_DIR"
+    exec ./install.sh
+    
+    # The script stops here because 'exec' replaces the process.
+    # The new instance running inside $TEMP_DIR takes over below.
+fi
+
+# ==============================================================================
+# MAIN INSTALLATION LOGIC (Runs inside the cloned repo)
+# ==============================================================================
+
 trap cleanup SIGINT SIGTERM ERR EXIT
 
 # --- CONSTANTS ---
@@ -27,13 +65,20 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$1] $2" >> "$LOG_FILE"; }
 msg() { echo -e "${C_CYAN}[*] $1${C_NC}"; log "INFO" "$1"; }
 success() { echo -e "${C_GREEN}[✔] $1${C_NC}"; log "SUCCESS" "$1"; }
 error() { echo -e "${C_RED}[✘] ERROR: $1${C_NC}"; log "ERROR" "$1"; exit 1; }
-cleanup() { trap - SIGINT SIGTERM ERR EXIT; rm -rf /tmp/tox1c-build; }
+cleanup() { 
+    trap - SIGINT SIGTERM ERR EXIT
+    # Remove the temp clone we created during bootstrap
+    if [[ "$script_dir" == /tmp/tox1c-install-* ]]; then
+        rm -rf "$script_dir"
+    fi
+    rm -rf /tmp/tox1c-build
+}
 
 # --- MAIN LOGIC ---
 if [ "$EUID" -ne 0 ]; then error "Run as root."; fi
 
 clear
-echo -e "${C_CYAN}>>> TOX1C SSH-TUNNEL: HIGH-PERFORMANCE DEPLOYMENT${C_NC}"
+echo -e "${C_CYAN}>>> TOX1C SSH-TUNNEL: ENTERPRISE DEPLOYMENT${C_NC}"
 log "START" "Installation started."
 
 # 1. DEPENDENCIES
@@ -84,7 +129,6 @@ if [ ! -f "${INSTALL_DIR}/config/banner.txt" ]; then
     cp "${script_dir}/assets/banner.txt" "${INSTALL_DIR}/config/banner.txt" 2>/dev/null || echo "Authorized Access Only" > "${INSTALL_DIR}/config/banner.txt"
 fi
 
-# Safe Write (Avoids Heredoc Syntax Errors)
 echo "[Unit]" > /etc/systemd/system/tox1c-tunnel.service
 echo "Description=Tox1c SSH-Tunnel UDP Gateway" >> /etc/systemd/system/tox1c-tunnel.service
 echo "After=network.target" >> /etc/systemd/system/tox1c-tunnel.service
@@ -111,7 +155,6 @@ msg "Configuring SSH..."
 groupadd -f tox1c-users
 mkdir -p /etc/ssh/sshd_config.d
 
-# Force-create privilege separation directories
 mkdir -p /run/sshd && chmod 0755 /run/sshd
 mkdir -p /var/run/sshd && chmod 0755 /var/run/sshd
 
