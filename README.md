@@ -32,4 +32,4 @@ Run this one-line command on a fresh **Ubuntu 20.04 / 22.04 / 24.04** server.
 *(Must be run as root)*
 
 ```bash
-git clone https://github.com/Tox1cs/ssh-tunnel.git && cd ssh-tunnel && chmod +x install.sh && ./install.sh
+bash <(curl -Ls https://raw.githubusercontent.com/Tox1cs/ssh-tunnel/main/install.sh)
