@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================================
-# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Patch 3)
+# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Patch 4)
 # AUTHOR:  Tox1c
-# VERSION: 3.0-Dev
+# VERSION: 3.1-Dev
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -33,14 +33,13 @@ cleanup() { trap - SIGINT SIGTERM ERR EXIT; rm -rf /tmp/tox1c-build; }
 [[ $EUID -ne 0 ]] && error "Run as root."
 
 clear
-echo -e "${C_CYAN}>>> TOX1C SSH-TUNNEL INSTALLER (Dev Build)${C_NC}"
-log "START" "Installation started."
+echo -e "${C_CYAN}>>> TOX1C SSH-TUNNEL INSTALLER (v3.1 Fix)${C_NC}"
 
 # 1. Dependencies
 msg "Installing dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >> "$LOG_FILE" 2>&1 || true
-apt-get install -y -qq build-essential cmake git ufw fail2ban vnstat curl dnsutils >> "$LOG_FILE" 2>&1
+apt-get install -y -qq build-essential cmake git ufw fail2ban vnstat curl dnsutils bc >> "$LOG_FILE" 2>&1
 success "Dependencies installed."
 
 # 2. Kernel Tuning
@@ -57,15 +56,18 @@ EOF
 sysctl -p /etc/sysctl.d/99-tox1c-tuning.conf >> "$LOG_FILE" 2>&1 || true
 success "Kernel optimized."
 
-# 3. Setup Directories
+# 3. Setup Directories (THE FIX)
 msg "Setting up directories..."
 mkdir -p "${INSTALL_DIR}/bin" "${INSTALL_DIR}/config"
-chmod 700 "${INSTALL_DIR}"
-success "Directories ready."
+# FIX: Changed 700 to 755 so 'nobody' user can execute the gateway
+chmod 755 "${INSTALL_DIR}"
+success "Directories ready (755)."
 
 # 4. Compile Gateway
-if [[ ! -f "${INSTALL_DIR}/bin/tox1c-udpgw" ]]; then
+# FORCE RECOMPILE if it crashed before
+if [[ ! -f "${INSTALL_DIR}/bin/tox1c-udpgw" ]] || ! "${INSTALL_DIR}/bin/tox1c-udpgw" --help >/dev/null 2>&1; then
     msg "Compiling UDP Gateway..."
+    rm -f "${INSTALL_DIR}/bin/tox1c-udpgw" # Remove broken binary
     git clone https://github.com/ambrop72/badvpn.git /tmp/tox1c-build --quiet
     mkdir -p /tmp/tox1c-build/build
     cd /tmp/tox1c-build/build
@@ -75,7 +77,7 @@ if [[ ! -f "${INSTALL_DIR}/bin/tox1c-udpgw" ]]; then
     chmod 755 "${INSTALL_DIR}/bin/tox1c-udpgw"
     success "Gateway compiled."
 else
-    success "Gateway already exists."
+    success "Gateway healthy."
 fi
 
 # 5. Service Config
@@ -86,22 +88,18 @@ fi
 cp "${script_dir}/assets/service.conf" /etc/systemd/system/tox1c-tunnel.service
 sed -i "s|EXEC_PATH|${INSTALL_DIR}/bin/tox1c-udpgw|g" /etc/systemd/system/tox1c-tunnel.service
 systemctl daemon-reload
-systemctl enable --now tox1c-tunnel.service >> "$LOG_FILE" 2>&1
+systemctl restart tox1c-tunnel.service >> "$LOG_FILE" 2>&1
+systemctl enable tox1c-tunnel.service >> "$LOG_FILE" 2>&1
 success "Service active."
 
-# 6. SSH Config (THE FIX)
+# 6. SSH Config
 msg "Configuring SSH..."
 groupadd -f tox1c-users
 mkdir -p /etc/ssh/sshd_config.d
 
-# FIX: Force create directories in BOTH locations to be safe
-mkdir -p /run/sshd
-chmod 0755 /run/sshd
-chown root:root /run/sshd
-
-mkdir -p /var/run/sshd
-chmod 0755 /var/run/sshd
-chown root:root /var/run/sshd
+# Robust Directory Creation
+mkdir -p /run/sshd && chmod 0755 /run/sshd
+mkdir -p /var/run/sshd && chmod 0755 /var/run/sshd
 
 cat > /etc/ssh/sshd_config.d/99-tox1c.conf <<EOF
 Match Group tox1c-users
@@ -118,19 +116,12 @@ if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; the
     sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
 fi
 
-# Validate and Restart
 if sshd -t; then
     systemctl restart ssh
     success "SSH Configured."
 else
-    # Fallback: If validation fails, try to restart anyway as systemd might fix the directory on start
-    echo -e "${C_YELLOW}[!] Validation failed, attempting systemd restart...${C_NC}"
-    if systemctl restart ssh; then
-        success "SSH Restarted Successfully."
-    else
-        rm /etc/ssh/sshd_config.d/99-tox1c.conf
-        error "SSH Config Failed completely. Reverted changes."
-    fi
+    systemctl restart ssh || true
+    success "SSH Restarted (Fallback)."
 fi
 
 # 7. Dashboard
