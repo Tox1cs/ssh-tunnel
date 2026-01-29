@@ -3,12 +3,9 @@
 # INSTALLER: Tox1c SSH-Tunnel (Professional Edition)
 # ==============================================================================
 set -Eeuo pipefail
-
-# --- DYNAMIC PATH RESOLUTION (The Fix) ---
-# This ensures we always know where the files are, even if run from weird locations
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-# --- CONFIGURATION ---
+# --- CONFIG ---
 INSTALL_PATH="/opt/tox1c-sshtunnel"
 BIN_PATH="/usr/local/bin"
 APP_COMMAND="tox1c"
@@ -18,22 +15,16 @@ REPO_NAME="Tox1c-SSHTunnel"
 GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 CHECK_MARK="${GREEN}✔${NC}"
 
-# --- ROOT CHECK ---
-if [[ $EUID -ne 0 ]]; then echo -e "${RED}[!] Error: This script must be run as root.${NC}"; exit 1; fi
+if [[ $EUID -ne 0 ]]; then echo -e "${RED}[!] Error: Run as root.${NC}"; exit 1; fi
 
-echo -e "${CYAN}>>> DEPLOYING ${REPO_NAME}...${NC}"
+echo -e "${CYAN}>>> DEPLOYING ${REPO_NAME} v2.1...${NC}"
 
-# TRAP: Cleanup if failed
+# TRAP
 trap 'echo -e "${RED}[!] Setup Failed. Reverting...${NC}"; rm -rf /tmp/tox1c-build' ERR SIGINT
 
-# 0. FILE INTEGRITY CHECK (Debug)
-# This checks if the files exist before trying to install
+# 0. INTEGRITY CHECK
 if [[ ! -f "$SCRIPT_DIR/assets/service.conf" ]]; then
-    echo -e "${RED}[!] CRITICAL ERROR: 'assets/service.conf' is missing!${NC}"
-    echo "    Looking in: $SCRIPT_DIR/assets/"
-    echo "    Contents of $SCRIPT_DIR:"
-    ls -R "$SCRIPT_DIR"
-    exit 1
+    echo -e "${RED}[!] CRITICAL: Missing assets! Run git pull.${NC}"; exit 1
 fi
 
 # 1. DEPENDENCIES
@@ -43,16 +34,24 @@ apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq build-essential cmake git ufw fail2ban vnstat curl >/dev/null 2>&1
 echo -e "${CHECK_MARK}"
 
-# 2. SECURE DIRECTORY
-echo -ne " [.] Creating Project Core at ${INSTALL_PATH}... "
+# 2. SYSTEM OPTIMIZATION (BBR)
+echo -ne " [.] Enabling TCP BBR (Turbo Mode)... "
+if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
+    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    sysctl -p >/dev/null 2>&1
+fi
+echo -e "${CHECK_MARK}"
+
+# 3. SECURE DIRECTORY
+echo -ne " [.] Creating Project Core... "
 mkdir -p "${INSTALL_PATH}/bin" "${INSTALL_PATH}/config"
-# SECURE: Only root can access this folder
 chmod 700 "${INSTALL_PATH}"
 echo -e "${CHECK_MARK}"
 
-# 3. COMPILE UDP GATEWAY
+# 4. COMPILE UDP GATEWAY
 if [ ! -f "${INSTALL_PATH}/bin/tox1c-udpgw" ]; then
-    echo -e " [.] Compiling High-Performance UDP Gateway..."
+    echo -e " [.] Compiling High-Performance Gateway..."
     rm -rf /tmp/tox1c-build
     git clone https://github.com/ambrop72/badvpn.git /tmp/tox1c-build --quiet
     mkdir -p /tmp/tox1c-build/build
@@ -63,26 +62,20 @@ if [ ! -f "${INSTALL_PATH}/bin/tox1c-udpgw" ]; then
     chmod 755 "${INSTALL_PATH}/bin/tox1c-udpgw"
     cd /
     rm -rf /tmp/tox1c-build
-    echo -e "     ${CHECK_MARK} Compilation Success."
+    echo -e "     ${CHECK_MARK} Compiled."
 else
-    echo -e "     ${CHECK_MARK} Gateway already installed."
+    echo -e "     ${CHECK_MARK} Gateway Ready."
 fi
 
-# 4. DEPLOY ASSETS & CONFIG
+# 5. DEPLOY CONFIGS
 echo -ne " [.] Configuring Services... "
-
-# -- 4a. Banner --
-# Use "$SCRIPT_DIR" to find the file reliably
 cp "$SCRIPT_DIR/assets/banner.txt" "${INSTALL_PATH}/config/banner.txt" 2>/dev/null || echo "Authorized Access Only" > "${INSTALL_PATH}/config/banner.txt"
 
-# -- 4b. Systemd Service --
-# Use "$SCRIPT_DIR" to find the file reliably
 cp "$SCRIPT_DIR/assets/service.conf" /etc/systemd/system/tox1c-tunnel.service
 sed -i "s|EXEC_PATH|${INSTALL_PATH}/bin/tox1c-udpgw|g" /etc/systemd/system/tox1c-tunnel.service
 systemctl daemon-reload
 systemctl enable --now tox1c-tunnel.service >/dev/null 2>&1
 
-# -- 4c. SSH Group Isolation --
 groupadd -f tox1c-users
 cat <<EOF > /etc/ssh/sshd_config.d/99-tox1c.conf
 Match Group tox1c-users
@@ -97,16 +90,15 @@ EOF
 systemctl restart ssh
 echo -e "${CHECK_MARK}"
 
-# 5. INSTALL MANAGER APP
-echo -ne " [.] Installing CLI Dashboard... "
-# Use "$SCRIPT_DIR" to find the file reliably
+# 6. INSTALL MANAGER APP
+echo -ne " [.] Installing Dashboard... "
 cp "$SCRIPT_DIR/src/manager.sh" "${INSTALL_PATH}/bin/manager"
 chmod 700 "${INSTALL_PATH}/bin/manager"
 ln -sf "${INSTALL_PATH}/bin/manager" "${BIN_PATH}/${APP_COMMAND}"
 echo -e "${CHECK_MARK}"
 
-# 6. FIREWALL
-echo -ne " [.] Securing Firewall... "
+# 7. FIREWALL
+echo -ne " [.] Locking Firewall... "
 ufw allow 22/tcp >/dev/null 2>&1
 ufw reload >/dev/null 2>&1
 echo -e "${CHECK_MARK}"
@@ -114,5 +106,5 @@ echo -e "${CHECK_MARK}"
 echo ""
 echo -e "${GREEN}===================================================${NC}"
 echo -e "${GREEN}   INSTALLED SUCCESSFULLY${NC}"
-echo -e "   Command to run: ${CYAN}${APP_COMMAND}${NC}"
+echo -e "   Command: ${CYAN}${APP_COMMAND}${NC}"
 echo -e "${GREEN}===================================================${NC}"
