@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# INSTALLER: Tox1c SSH-Tunnel v2.2 (Patch 1)
+# INSTALLER: Tox1c SSH-Tunnel (Dev Edition)
 # ==============================================================================
 set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -17,12 +17,12 @@ CHECK_MARK="${GREEN}✔${NC}"
 
 if [[ $EUID -ne 0 ]]; then echo -e "${RED}[!] Error: Run as root.${NC}"; exit 1; fi
 
-echo -e "${CYAN}>>> DEPLOYING ${REPO_NAME} v2.2...${NC}"
+echo -e "${CYAN}>>> DEPLOYING ${REPO_NAME} (Update)...${NC}"
 trap 'echo -e "${RED}[!] Setup Failed. Reverting...${NC}"; rm -rf /tmp/tox1c-build' ERR SIGINT
 
 # 0. INTEGRITY CHECK
 if [[ ! -f "$SCRIPT_DIR/assets/service.conf" ]]; then
-    echo -e "${RED}[!] CRITICAL: Missing assets! Run git pull.${NC}"; exit 1
+    echo -e "${RED}[!] CRITICAL: Missing assets!${NC}"; exit 1
 fi
 
 # 1. DEPENDENCIES
@@ -32,24 +32,25 @@ apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq build-essential cmake git ufw fail2ban vnstat curl >/dev/null 2>&1
 echo -e "${CHECK_MARK}"
 
-# 2. SYSTEM OPTIMIZATION (BBR)
+# 2. SYSTEM OPTIMIZATION (BBR) - Safe Check
 echo -ne " [.] Enabling TCP BBR... "
+if [ ! -f /etc/sysctl.conf ]; then touch /etc/sysctl.conf; fi
 if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
     echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-    sysctl -p >/dev/null 2>&1
+    sysctl -p >/dev/null 2>&1 || true
 fi
 echo -e "${CHECK_MARK}"
 
 # 3. SECURE DIRECTORY
-echo -ne " [.] Creating Project Core... "
+echo -ne " [.] Updating Project Core... "
 mkdir -p "${INSTALL_PATH}/bin" "${INSTALL_PATH}/config"
 chmod 700 "${INSTALL_PATH}"
 echo -e "${CHECK_MARK}"
 
 # 4. COMPILE UDP GATEWAY
 if [ ! -f "${INSTALL_PATH}/bin/tox1c-udpgw" ]; then
-    echo -e " [.] Compiling High-Performance Gateway..."
+    echo -e " [.] Compiling Gateway..."
     rm -rf /tmp/tox1c-build
     git clone https://github.com/ambrop72/badvpn.git /tmp/tox1c-build --quiet
     mkdir -p /tmp/tox1c-build/build
@@ -67,7 +68,10 @@ fi
 
 # 5. DEPLOY CONFIGS
 echo -ne " [.] Configuring Services... "
-cp "$SCRIPT_DIR/assets/banner.txt" "${INSTALL_PATH}/config/banner.txt" 2>/dev/null || echo "Authorized Access Only" > "${INSTALL_PATH}/config/banner.txt"
+# Only install banner if missing to preserve custom edits
+if [ ! -f "${INSTALL_PATH}/config/banner.txt" ]; then
+    cp "$SCRIPT_DIR/assets/banner.txt" "${INSTALL_PATH}/config/banner.txt" 2>/dev/null || echo "Authorized Access" > "${INSTALL_PATH}/config/banner.txt"
+fi
 
 cp "$SCRIPT_DIR/assets/service.conf" /etc/systemd/system/tox1c-tunnel.service
 sed -i "s|EXEC_PATH|${INSTALL_PATH}/bin/tox1c-udpgw|g" /etc/systemd/system/tox1c-tunnel.service
@@ -75,6 +79,7 @@ systemctl daemon-reload
 systemctl enable --now tox1c-tunnel.service >/dev/null 2>&1
 
 groupadd -f tox1c-users
+mkdir -p /etc/ssh/sshd_config.d
 cat <<EOF > /etc/ssh/sshd_config.d/99-tox1c.conf
 Match Group tox1c-users
     Banner ${INSTALL_PATH}/config/banner.txt
@@ -85,33 +90,30 @@ Match Group tox1c-users
     PermitTunnel yes
     PasswordAuthentication yes
 EOF
+
+if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
+    sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
+fi
 systemctl restart ssh
 echo -e "${CHECK_MARK}"
 
-# 6. INSTALL MANAGER APP
+# 6. INSTALL MANAGER APP (Always Update this)
 echo -ne " [.] Installing Dashboard... "
 cp "$SCRIPT_DIR/src/manager.sh" "${INSTALL_PATH}/bin/manager"
 chmod 700 "${INSTALL_PATH}/bin/manager"
 ln -sf "${INSTALL_PATH}/bin/manager" "${BIN_PATH}/${APP_COMMAND}"
 echo -e "${CHECK_MARK}"
 
-# 7. FIREWALL (Smart Port Detection - FIX)
+# 7. FIREWALL
 echo -ne " [.] Securing Firewall... "
-
-# FIX: Added '|| true' to prevent script crash if grep finds nothing
 CURRENT_SSH_PORT=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | cut -d' ' -f2 || true)
-
-# If variable is empty (grep failed), default to 22
-if [[ -z "$CURRENT_SSH_PORT" ]]; then 
-    CURRENT_SSH_PORT=22 
-fi
-
+if [[ -z "$CURRENT_SSH_PORT" ]]; then CURRENT_SSH_PORT=22; fi
 ufw allow "${CURRENT_SSH_PORT}/tcp" >/dev/null 2>&1
 ufw reload >/dev/null 2>&1
 echo -e "${CHECK_MARK}"
 
 echo ""
 echo -e "${GREEN}===================================================${NC}"
-echo -e "${GREEN}   INSTALLED SUCCESSFULLY${NC}"
+echo -e "${GREEN}   UPDATE COMPLETE${NC}"
 echo -e "   Command: ${CYAN}${APP_COMMAND}${NC}"
 echo -e "${GREEN}===================================================${NC}"

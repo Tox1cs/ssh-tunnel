@@ -1,12 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MANAGER: TOX1C SSH-TUNNEL v2.2
+# MANAGER: TOX1C SSH-TUNNEL (DEV BRANCH)
 # ==============================================================================
 
 # CONFIG
 VPN_GROUP="tox1c-users"
 UDPGW_PORT="7300"
-VERSION="2.2"
+VERSION="2.3-dev"
+GITHUB_REPO="Tox1cs/ssh-tunnel"
+BRANCH="dev"  # We are testing on DEV branch
 
 # THEME
 CYAN='\033[0;36m'; GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; WHITE='\033[1;37m'; NC='\033[0m'
@@ -28,30 +30,29 @@ header() {
     echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${WHITE}                   TOX1C SSH-TUNNEL                   ${CYAN}║${NC}"
     echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  GitHub: ${CYAN}https://github.com/Tox1cs${NC}                   ${CYAN}║${NC}"
+    # Added Version in GRAY to make it look "small" and subtle
+    echo -e "${CYAN}║${NC}  GitHub: ${CYAN}https://github.com/${GITHUB_REPO}${NC}     ${GRAY}${VERSION}${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
     
     HOST=$(hostname)
     IP=$(curl -s --connect-timeout 2 ifconfig.me)
-    # Get Current SSH Port
-    SSH_PORT=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | cut -d' ' -f2)
-    [[ -z "$SSH_PORT" ]] && SSH_PORT=22
-
-    echo -e " ${YELLOW}Host:${NC} $HOST  |  ${YELLOW}IP:${NC} $IP"
+    SSH_PORT=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | cut -d' ' -f2 || echo "22")
     
-    # BBR Check
     if sysctl net.ipv4.tcp_congestion_control | grep -q "bbr"; then
         MODE="${GREEN}Turbo (BBR)${NC}"
     else
         MODE="${GRAY}Standard${NC}"
     fi
+
+    echo -e " ${YELLOW}Host:${NC} $HOST  |  ${YELLOW}IP:${NC} $IP"
     echo -e " ${YELLOW}Mode:${NC} $MODE  |  ${YELLOW}Port:${NC} ${GREEN}$SSH_PORT${NC}"
     echo -e "${CYAN}──────────────────────────────────────────────────────${NC}"
 }
 
 pause() { echo ""; read -rsn1 -p "Press any key to return..."; }
 
-# --- USER MANAGEMENT ---
+# --- CORE FUNCTIONS ---
+
 create_user() {
     header
     echo -e "${GREEN}[+] CREATE USER${NC}"
@@ -99,9 +100,6 @@ remove_user() {
 lock_unlock_user() {
     header
     echo -e "${YELLOW}[!] LOCK / UNLOCK USER${NC}"
-    echo -e "${GRAY}Locked users cannot connect but data is saved.${NC}"
-    echo ""
-    # List users with Lock Status (L = Locked, P = Password set)
     for u in $(grep "$VPN_GROUP" /etc/group | cut -d: -f4 | tr ',' '\n'); do
         if [[ -n "$u" ]]; then
             STATUS=$(passwd -S "$u" | awk '{print $2}')
@@ -117,7 +115,6 @@ lock_unlock_user() {
         echo -e "${RED}[!] Not a VPN user.${NC}"; pause; return
     fi
 
-    # Check status and toggle
     STATUS=$(passwd -S "$u" | awk '{print $2}')
     if [[ "$STATUS" == "L" ]]; then
         passwd -u "$u" >/dev/null 2>&1
@@ -125,53 +122,76 @@ lock_unlock_user() {
     else
         passwd -l "$u" >/dev/null 2>&1
         pkill -u "$u"
-        echo -e "${RED}✔ User Locked & Disconnected.${NC}"
+        echo -e "${RED}✔ User Locked.${NC}"
     fi
     pause
 }
 
-# --- SYSTEM SETTINGS ---
 change_port() {
     header
-    echo -e "${YELLOW}[!] STEALTH MODE: CHANGE SSH PORT${NC}"
-    echo -e "${GRAY}Current Port: $SSH_PORT${NC}"
-    echo -e "${RED}WARNING: Ensure you update your VPN client port!${NC}"
-    echo ""
-    read -p "New Port (e.g. 2082): " new_p
+    echo -e "${YELLOW}[!] STEALTH MODE: CHANGE PORT${NC}"
+    echo -e "Current: $SSH_PORT"
+    read -p "New Port: " new_p
     
     if [[ ! "$new_p" =~ ^[0-9]+$ ]] || [ "$new_p" -lt 1 ] || [ "$new_p" -gt 65535 ]; then
         echo -e "${RED}[!] Invalid Port.${NC}"; pause; return
     fi
 
-    echo -e "\n${YELLOW}[*] Updating configuration...${NC}"
-    
-    # 1. Update SSH Config (Safe Regex)
-    # Check if Port line exists, replace it. If not, append it.
+    echo -e "\n${YELLOW}[*] Updating...${NC}"
     if grep -q "^Port " /etc/ssh/sshd_config; then
         sed -i "s/^Port .*/Port $new_p/" /etc/ssh/sshd_config
     else
         echo "Port $new_p" >> /etc/ssh/sshd_config
     fi
 
-    # 2. Update Firewall
     ufw allow "$new_p"/tcp >/dev/null
     ufw delete allow "$SSH_PORT"/tcp >/dev/null 2>&1
     ufw reload >/dev/null
-
-    # 3. Restart SSH
     systemctl restart ssh
     
-    echo -e "${GREEN}✔ SUCCESS! SSH is now on Port $new_p.${NC}"
-    echo -e "Reconnect your SSH client using the new port."
+    echo -e "${GREEN}✔ Success! Port changed to $new_p.${NC}"
     pause
 }
 
 monitor() {
     header
     echo -e "${YELLOW}[*] LIVE MONITOR (Ctrl+C to Stop)${NC}"
-    systemctl is-active --quiet tox1c-tunnel.service && echo -e "${GREEN}● Gateway Active${NC}" || echo -e "${RED}● Gateway Failed${NC}"
-    echo "---------------------------------"
     watch -n 1 -c "ps -eo user,cmd | grep 'sshd: ' | grep -v 'root' | grep -v 'grep'; echo ''; vnstat -tr 2"
+}
+
+# --- UPDATE ENGINE (DEV) ---
+update_system() {
+    header
+    echo -e "${YELLOW}[*] SYSTEM UPDATE (DEV BRANCH)${NC}"
+    echo -e "This will pull the latest code from the '${BRANCH}' branch."
+    read -p "Continue? (y/n): " confirm
+    [[ "$confirm" != "y" ]] && return
+
+    echo -e "\n${CYAN}>>> Connecting to GitHub...${NC}"
+    
+    TMP_DIR="/tmp/tox1c_updater"
+    rm -rf "$TMP_DIR"
+    
+    # Clone the DEV branch specifically
+    if git clone -b "$BRANCH" "https://github.com/${GITHUB_REPO}.git" "$TMP_DIR"; then
+        echo -e "${GREEN}✔ Download Complete.${NC}"
+        echo -e "Installing Update..."
+        
+        chmod +x "$TMP_DIR/install.sh"
+        
+        # Run the installer from the temp dir
+        # We use bash explicitly to avoid permission issues
+        (cd "$TMP_DIR" && bash install.sh)
+        
+        rm -rf "$TMP_DIR"
+        echo -e "\n${GREEN}✔ UPDATE SUCCESSFUL! Restarting...${NC}"
+        sleep 2
+        exec "$0"
+    else
+        echo -e "${RED}[!] Error: Could not connect to GitHub.${NC}"
+        echo -e "Check your internet connection or git installation."
+        pause
+    fi
 }
 
 # --- MENUS ---
@@ -195,13 +215,15 @@ menu_users() {
 menu_system() {
     while true; do
         header
-        echo " 1) Change SSH Port (Stealth)"
+        echo " 1) Change SSH Port"
         echo " 2) Monitor Traffic"
+        echo " 8) Update System (Dev)"
         echo " 0) Back"
         read -p " Select: " o
         case $o in
             1) change_port ;;
             2) monitor ;;
+            8) update_system ;;
             0) return ;;
         esac
     done
