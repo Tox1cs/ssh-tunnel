@@ -6,7 +6,7 @@
 # CONFIG
 VPN_GROUP="tox1c-users"
 UDPGW_PORT="7300"
-VERSION="2.0-PRO"
+VERSION="2.0"
 
 # THEME
 CYAN='\033[0;36m'; GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; WHITE='\033[1;37m'; NC='\033[0m'
@@ -15,7 +15,6 @@ CYAN='\033[0;36m'; GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; WH
 check_root() { [[ $EUID -ne 0 ]] && { echo -e "${RED}[!] Run as root.${NC}"; exit 1; } }
 
 validate_input() {
-    # Regex: Alphanumeric, underscores, dashes only
     if [[ ! "$1" =~ ^[a-zA-Z0-9_-]+$ ]]; then
         echo -e "${RED}[!] Error: Invalid characters. Use A-Z, 0-9, -, _ only.${NC}"
         pause; return 1
@@ -26,16 +25,20 @@ validate_input() {
 # --- UI ---
 header() {
     clear
-    # Box Width: 54 characters inside
+    # Border Width: 54 chars inside
     echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${WHITE}                   TOX1C SSH-TUNNEL                   ${CYAN}║${NC}"
     echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    # "GitHub: https://github.com/Tox1cs" is 33 chars. 54 - 33 = 21 spaces padding.
-    echo -e "${CYAN}║${NC}  GitHub: ${CYAN}https://github.com/Tox1cs${NC}                     ${CYAN}║${NC}"
+    # Link is 33 chars. Leading spaces 2. Total 35 chars.
+    # 54 - 35 = 19 spaces padding needed.
+    echo -e "${CYAN}║${NC}  GitHub: ${CYAN}https://github.com/Tox1cs${NC}                   ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
     
-    # System Info (Dynamic)
-    echo -e " ${YELLOW}System:${NC} $(hostname) | ${YELLOW}IP:${NC} $(curl -s --connect-timeout 2 ifconfig.me)"
+    # Cleaner System Info
+    # We grab just the Hostname (cleaned) and IP
+    HOST=$(hostname)
+    IP=$(curl -s --connect-timeout 2 ifconfig.me)
+    echo -e " ${YELLOW}Host:${NC} $HOST  |  ${YELLOW}IP:${NC} $IP"
     echo -e "${CYAN}──────────────────────────────────────────────────────${NC}"
 }
 
@@ -64,7 +67,7 @@ create_user() {
 remove_user() {
     header
     echo -e "${RED}[-] REMOVE TUNNEL USER${NC}"
-    # Only list users in the VPN group, hide empty lines
+    # List users cleanly
     grep "$VPN_GROUP" /etc/group | cut -d: -f4 | tr ',' '\n' | sed '/^$/d' | sed 's/^/ - /'
     echo ""
     read -p "Username to delete: " u
