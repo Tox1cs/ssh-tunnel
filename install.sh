@@ -4,6 +4,10 @@
 # ==============================================================================
 set -Eeuo pipefail
 
+# --- DYNAMIC PATH RESOLUTION (The Fix) ---
+# This ensures we always know where the files are, even if run from weird locations
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
 # --- CONFIGURATION ---
 INSTALL_PATH="/opt/tox1c-sshtunnel"
 BIN_PATH="/usr/local/bin"
@@ -21,6 +25,16 @@ echo -e "${CYAN}>>> DEPLOYING ${REPO_NAME}...${NC}"
 
 # TRAP: Cleanup if failed
 trap 'echo -e "${RED}[!] Setup Failed. Reverting...${NC}"; rm -rf /tmp/tox1c-build' ERR SIGINT
+
+# 0. FILE INTEGRITY CHECK (Debug)
+# This checks if the files exist before trying to install
+if [[ ! -f "$SCRIPT_DIR/assets/service.conf" ]]; then
+    echo -e "${RED}[!] CRITICAL ERROR: 'assets/service.conf' is missing!${NC}"
+    echo "    Looking in: $SCRIPT_DIR/assets/"
+    echo "    Contents of $SCRIPT_DIR:"
+    ls -R "$SCRIPT_DIR"
+    exit 1
+fi
 
 # 1. DEPENDENCIES
 echo -ne " [.] Installing Dependencies... "
@@ -58,14 +72,12 @@ fi
 echo -ne " [.] Configuring Services... "
 
 # -- 4a. Banner --
-if [ -f "assets/banner.txt" ]; then
-    cp assets/banner.txt "${INSTALL_PATH}/config/banner.txt"
-else
-    echo "Authorized Access Only" > "${INSTALL_PATH}/config/banner.txt"
-fi
+# Use "$SCRIPT_DIR" to find the file reliably
+cp "$SCRIPT_DIR/assets/banner.txt" "${INSTALL_PATH}/config/banner.txt" 2>/dev/null || echo "Authorized Access Only" > "${INSTALL_PATH}/config/banner.txt"
 
 # -- 4b. Systemd Service --
-cp assets/service.conf /etc/systemd/system/tox1c-tunnel.service
+# Use "$SCRIPT_DIR" to find the file reliably
+cp "$SCRIPT_DIR/assets/service.conf" /etc/systemd/system/tox1c-tunnel.service
 sed -i "s|EXEC_PATH|${INSTALL_PATH}/bin/tox1c-udpgw|g" /etc/systemd/system/tox1c-tunnel.service
 systemctl daemon-reload
 systemctl enable --now tox1c-tunnel.service >/dev/null 2>&1
@@ -87,7 +99,8 @@ echo -e "${CHECK_MARK}"
 
 # 5. INSTALL MANAGER APP
 echo -ne " [.] Installing CLI Dashboard... "
-cp src/manager.sh "${INSTALL_PATH}/bin/manager"
+# Use "$SCRIPT_DIR" to find the file reliably
+cp "$SCRIPT_DIR/src/manager.sh" "${INSTALL_PATH}/bin/manager"
 chmod 700 "${INSTALL_PATH}/bin/manager"
 ln -sf "${INSTALL_PATH}/bin/manager" "${BIN_PATH}/${APP_COMMAND}"
 echo -e "${CHECK_MARK}"
