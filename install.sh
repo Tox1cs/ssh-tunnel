@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# INSTALLER: Tox1c SSH-Tunnel (Professional Edition)
+# INSTALLER: Tox1c SSH-Tunnel v2.2
 # ==============================================================================
 set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -17,9 +17,7 @@ CHECK_MARK="${GREEN}✔${NC}"
 
 if [[ $EUID -ne 0 ]]; then echo -e "${RED}[!] Error: Run as root.${NC}"; exit 1; fi
 
-echo -e "${CYAN}>>> DEPLOYING ${REPO_NAME} v2.1...${NC}"
-
-# TRAP
+echo -e "${CYAN}>>> DEPLOYING ${REPO_NAME} v2.2...${NC}"
 trap 'echo -e "${RED}[!] Setup Failed. Reverting...${NC}"; rm -rf /tmp/tox1c-build' ERR SIGINT
 
 # 0. INTEGRITY CHECK
@@ -35,7 +33,7 @@ apt-get install -y -qq build-essential cmake git ufw fail2ban vnstat curl >/dev/
 echo -e "${CHECK_MARK}"
 
 # 2. SYSTEM OPTIMIZATION (BBR)
-echo -ne " [.] Enabling TCP BBR (Turbo Mode)... "
+echo -ne " [.] Enabling TCP BBR... "
 if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
     echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
@@ -97,9 +95,13 @@ chmod 700 "${INSTALL_PATH}/bin/manager"
 ln -sf "${INSTALL_PATH}/bin/manager" "${BIN_PATH}/${APP_COMMAND}"
 echo -e "${CHECK_MARK}"
 
-# 7. FIREWALL
-echo -ne " [.] Locking Firewall... "
-ufw allow 22/tcp >/dev/null 2>&1
+# 7. FIREWALL (Smart Port Detection)
+echo -ne " [.] Securing Firewall... "
+# Detect current SSH port to avoid locking out the admin
+CURRENT_SSH_PORT=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | cut -d' ' -f2)
+if [[ -z "$CURRENT_SSH_PORT" ]]; then CURRENT_SSH_PORT=22; fi
+
+ufw allow ${CURRENT_SSH_PORT}/tcp >/dev/null 2>&1
 ufw reload >/dev/null 2>&1
 echo -e "${CHECK_MARK}"
 
