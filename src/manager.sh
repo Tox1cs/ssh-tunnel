@@ -26,11 +26,15 @@ validate_input() {
 # --- UI ---
 header() {
     clear
+    # Box Width: 54 characters inside
     echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║              ${WHITE}TOX1C SSH-TUNNEL ${YELLOW}v${VERSION}${CYAN}                   ║${NC}"
+    echo -e "${CYAN}║${WHITE}                   TOX1C SSH-TUNNEL                   ${CYAN}║${NC}"
     echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  GitHub: ${CYAN}https://github.com/Tox1cs${NC}                   ${CYAN}║${NC}"
+    # "GitHub: https://github.com/Tox1cs" is 33 chars. 54 - 33 = 21 spaces padding.
+    echo -e "${CYAN}║${NC}  GitHub: ${CYAN}https://github.com/Tox1cs${NC}                     ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+    
+    # System Info (Dynamic)
     echo -e " ${YELLOW}System:${NC} $(hostname) | ${YELLOW}IP:${NC} $(curl -s --connect-timeout 2 ifconfig.me)"
     echo -e "${CYAN}──────────────────────────────────────────────────────${NC}"
 }
