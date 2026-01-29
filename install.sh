@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition
+# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Fixed)
 # AUTHOR:  Tox1c
 # VERSION: 3.0-Dev
 # ==============================================================================
@@ -51,7 +51,6 @@ error() {
 
 cleanup() {
     trap - SIGINT SIGTERM ERR EXIT
-    # Cleanup temp files if any
     rm -rf /tmp/tox1c-build
 }
 
@@ -76,7 +75,7 @@ apt-get update -qq >> "$LOG_FILE" 2>&1 || true
 apt-get install -y -qq build-essential cmake git ufw fail2ban vnstat curl dnsutils >> "$LOG_FILE" 2>&1
 success "Dependencies installed."
 
-# 3. Kernel Optimization (The Speed Upgrade)
+# 3. Kernel Optimization
 msg "Applying Kernel Performance Tuning..."
 cat > /etc/sysctl.d/99-tox1c-tuning.conf <<EOF
 # TOX1C PERFORMANCE TUNING
@@ -104,7 +103,6 @@ if [[ ! -f "${INSTALL_DIR}/bin/tox1c-udpgw" ]]; then
     git clone https://github.com/ambrop72/badvpn.git /tmp/tox1c-build --quiet
     mkdir -p /tmp/tox1c-build/build
     cd /tmp/tox1c-build/build
-    # Optimization flags for speed (-O3)
     cmake .. -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 -DCMAKE_C_FLAGS="-O3" >> "$LOG_FILE" 2>&1
     make install >> "$LOG_FILE" 2>&1
     cp udpgw/badvpn-udpgw "${INSTALL_DIR}/bin/tox1c-udpgw"
@@ -130,11 +128,12 @@ systemctl daemon-reload
 systemctl enable --now tox1c-tunnel.service >> "$LOG_FILE" 2>&1
 success "Background services active."
 
-# 7. SSH Hardening & Config
+# 7. SSH Hardening & Config (FIXED)
 msg "Hardening SSH Configuration..."
 groupadd -f tox1c-users
 mkdir -p /etc/ssh/sshd_config.d
 
+# FIX: Removed UseDNS and TCPKeepAlive from Match block (Illegal in SSHD)
 cat > /etc/ssh/sshd_config.d/99-tox1c.conf <<EOF
 Match Group tox1c-users
     Banner ${INSTALL_DIR}/config/banner.txt
@@ -144,9 +143,6 @@ Match Group tox1c-users
     AllowTcpForwarding yes
     PermitTunnel yes
     PasswordAuthentication yes
-    # Performance
-    TCPKeepAlive yes
-    UseDNS no
 EOF
 
 # Ensure Include exists
@@ -154,8 +150,15 @@ if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; the
     sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
 fi
 
-systemctl restart ssh
-success "SSH configured."
+# Validation Check before restart
+if sshd -t; then
+    systemctl restart ssh
+    success "SSH configured successfully."
+else
+    error "SSH Configuration test failed! Reverting..."
+    rm /etc/ssh/sshd_config.d/99-tox1c.conf
+    systemctl restart ssh
+fi
 
 # 8. Dashboard Installation
 msg "Installing Management Dashboard..."
