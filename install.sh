@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# INSTALLER: Tox1c SSH-Tunnel v2.2
+# INSTALLER: Tox1c SSH-Tunnel v2.2 (Patch 1)
 # ==============================================================================
 set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -95,13 +95,18 @@ chmod 700 "${INSTALL_PATH}/bin/manager"
 ln -sf "${INSTALL_PATH}/bin/manager" "${BIN_PATH}/${APP_COMMAND}"
 echo -e "${CHECK_MARK}"
 
-# 7. FIREWALL (Smart Port Detection)
+# 7. FIREWALL (Smart Port Detection - FIX)
 echo -ne " [.] Securing Firewall... "
-# Detect current SSH port to avoid locking out the admin
-CURRENT_SSH_PORT=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | cut -d' ' -f2)
-if [[ -z "$CURRENT_SSH_PORT" ]]; then CURRENT_SSH_PORT=22; fi
 
-ufw allow ${CURRENT_SSH_PORT}/tcp >/dev/null 2>&1
+# FIX: Added '|| true' to prevent script crash if grep finds nothing
+CURRENT_SSH_PORT=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | cut -d' ' -f2 || true)
+
+# If variable is empty (grep failed), default to 22
+if [[ -z "$CURRENT_SSH_PORT" ]]; then 
+    CURRENT_SSH_PORT=22 
+fi
+
+ufw allow "${CURRENT_SSH_PORT}/tcp" >/dev/null 2>&1
 ufw reload >/dev/null 2>&1
 echo -e "${CHECK_MARK}"
 
