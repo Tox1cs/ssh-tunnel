@@ -7,11 +7,8 @@ A professional, secure, and automated SSH Tunneling Manager.
 * **Optimized:** Includes compiled UDP Gateway for Gaming/VoIP.
 * **Tox1c-Dashboard:** Beautiful interactive CLI for management.
 
-## 🚀 Installation
-Run this on your Ubuntu server:
+## 🚀 Quick Install (One-Line)
+Run this single command on your Ubuntu server to install everything:
 
 ```bash
-git clone [https://github.com/Tox1cs/YOUR-REPO-NAME.git](https://github.com/Tox1cs/YOUR-REPO-NAME.git)
-cd YOUR-REPO-NAME
-sudo chmod +x install.sh
-sudo ./install.sh
+git clone [https://github.com/Tox1cs/ssh-tunnel.git](https://github.com/Tox1cs/ssh-tunnel.git) && cd ssh-tunnel && chmod +x install.sh && sudo ./install.sh
