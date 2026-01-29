@@ -6,7 +6,7 @@
 # --- CONFIGURATION ---
 readonly VPN_GROUP="tox1c-users"
 readonly REPO="Tox1cs/ssh-tunnel"
-readonly BRANCH="dev"
+readonly BRANCH="main"
 # Auto-detect primary interface
 readonly INTERFACE=$(ip route get 8.8.8.8 | grep -oP 'dev \K\S+')
 
