@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Patch 2)
+# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Patch 3)
 # AUTHOR:  Tox1c
 # VERSION: 3.0-Dev
 # ==============================================================================
@@ -89,16 +89,19 @@ systemctl daemon-reload
 systemctl enable --now tox1c-tunnel.service >> "$LOG_FILE" 2>&1
 success "Service active."
 
-# 6. SSH Config (FIXED)
+# 6. SSH Config (THE FIX)
 msg "Configuring SSH..."
 groupadd -f tox1c-users
 mkdir -p /etc/ssh/sshd_config.d
 
-# FIX: Create the missing privilege separation directory
-if [ ! -d /run/sshd ]; then
-    mkdir -p /run/sshd
-    chmod 0755 /run/sshd
-fi
+# FIX: Force create directories in BOTH locations to be safe
+mkdir -p /run/sshd
+chmod 0755 /run/sshd
+chown root:root /run/sshd
+
+mkdir -p /var/run/sshd
+chmod 0755 /var/run/sshd
+chown root:root /var/run/sshd
 
 cat > /etc/ssh/sshd_config.d/99-tox1c.conf <<EOF
 Match Group tox1c-users
@@ -120,8 +123,14 @@ if sshd -t; then
     systemctl restart ssh
     success "SSH Configured."
 else
-    rm /etc/ssh/sshd_config.d/99-tox1c.conf
-    error "SSH Config Check Failed. Reverted changes."
+    # Fallback: If validation fails, try to restart anyway as systemd might fix the directory on start
+    echo -e "${C_YELLOW}[!] Validation failed, attempting systemd restart...${C_NC}"
+    if systemctl restart ssh; then
+        success "SSH Restarted Successfully."
+    else
+        rm /etc/ssh/sshd_config.d/99-tox1c.conf
+        error "SSH Config Failed completely. Reverted changes."
+    fi
 fi
 
 # 7. Dashboard
