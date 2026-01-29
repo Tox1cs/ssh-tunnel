@@ -11,4 +11,4 @@ A professional, secure, and automated SSH Tunneling Manager.
 Run this single command on your Ubuntu server to install everything:
 
 ```bash
-git clone [https://github.com/Tox1cs/ssh-tunnel.git](https://github.com/Tox1cs/ssh-tunnel.git) && cd ssh-tunnel && chmod +x install.sh && sudo ./install.sh
+git clone https://github.com/Tox1cs/ssh-tunnel.git && cd ssh-tunnel && chmod +x install.sh && ./install.sh
