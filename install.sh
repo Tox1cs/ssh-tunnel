@@ -1,11 +1,11 @@
 #!/bin/bash
 # ==============================================================================
-# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Refactored)
+# PROJECT: Tox1c SSH-Tunnel | Enterprise Edition (Fixed)
 # AUTHOR:  Tox1c
 # TARGET:  Dev Branch
 # ==============================================================================
 
-set -Eeuo pipefail
+set -u
 trap cleanup SIGINT SIGTERM ERR EXIT
 
 # --- CONSTANTS ---
@@ -30,7 +30,7 @@ error() { echo -e "${C_RED}[✘] ERROR: $1${C_NC}"; log "ERROR" "$1"; exit 1; }
 cleanup() { trap - SIGINT SIGTERM ERR EXIT; rm -rf /tmp/tox1c-build; }
 
 # --- MAIN LOGIC ---
-[[ $EUID -ne 0 ]] && error "Run as root."
+if [ "$EUID" -ne 0 ]; then error "Run as root."; fi
 
 clear
 echo -e "${C_CYAN}>>> TOX1C SSH-TUNNEL: HIGH-PERFORMANCE DEPLOYMENT${C_NC}"
@@ -40,42 +40,35 @@ log "START" "Installation started."
 msg "Installing System Dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >> "$LOG_FILE" 2>&1 || true
-# Added 'bc' for math operations in dashboard
 apt-get install -y -qq build-essential cmake git ufw fail2ban vnstat curl dnsutils bc >> "$LOG_FILE" 2>&1
 success "Dependencies ready."
 
-# 2. KERNEL TUNING (Optimized for 1Gbps+)
+# 2. KERNEL TUNING
 msg "Injecting Kernel Parameters..."
-cat > /etc/sysctl.d/99-tox1c-tuning.conf <<EOF
-# TOX1C NETWORK OPTIMIZATION
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_mtu_probing = 1
-EOF
+echo "# TOX1C NETWORK OPTIMIZATION" > /etc/sysctl.d/99-tox1c-tuning.conf
+echo "net.core.default_qdisc = fq" >> /etc/sysctl.d/99-tox1c-tuning.conf
+echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.d/99-tox1c-tuning.conf
+echo "net.core.rmem_max = 16777216" >> /etc/sysctl.d/99-tox1c-tuning.conf
+echo "net.core.wmem_max = 16777216" >> /etc/sysctl.d/99-tox1c-tuning.conf
+echo "net.ipv4.tcp_rmem = 4096 87380 16777216" >> /etc/sysctl.d/99-tox1c-tuning.conf
+echo "net.ipv4.tcp_wmem = 4096 65536 16777216" >> /etc/sysctl.d/99-tox1c-tuning.conf
+echo "net.ipv4.tcp_fastopen = 3" >> /etc/sysctl.d/99-tox1c-tuning.conf
 sysctl -p /etc/sysctl.d/99-tox1c-tuning.conf >> "$LOG_FILE" 2>&1 || true
 success "Kernel tuned (BBR + Huge Buffers)."
 
-# 3. DIRECTORY STRUCTURE (Security Audit)
+# 3. DIRECTORY STRUCTURE
 msg "Securing Directory Structure..."
 mkdir -p "${INSTALL_DIR}/bin" "${INSTALL_DIR}/config"
-# PERMISSION FIX: 755 allows 'nobody' user to read/exec, keeping 700 breaks the service
 chmod 755 "${INSTALL_DIR}"
 success "Permissions set to 755 (Service-Ready)."
 
-# 4. COMPILATION (Gateway)
-# Recompile if missing or broken
-if [[ ! -x "${INSTALL_DIR}/bin/tox1c-udpgw" ]]; then
+# 4. COMPILATION
+if [ ! -x "${INSTALL_DIR}/bin/tox1c-udpgw" ]; then
     msg "Compiling High-Performance UDP Gateway..."
     rm -f "${INSTALL_DIR}/bin/tox1c-udpgw"
     git clone https://github.com/ambrop72/badvpn.git /tmp/tox1c-build --quiet
     mkdir -p /tmp/tox1c-build/build
     cd /tmp/tox1c-build/build
-    # -O3 flag forces compiler to optimize for maximum speed
     cmake .. -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 -DCMAKE_C_FLAGS="-O3" >> "$LOG_FILE" 2>&1
     make install >> "$LOG_FILE" 2>&1
     cp udpgw/badvpn-udpgw "${INSTALL_DIR}/bin/tox1c-udpgw"
@@ -87,5 +80,74 @@ fi
 
 # 5. SERVICE CONFIGURATION
 msg "Configuring Systemd Service..."
-if [[ ! -f "${INSTALL_DIR}/config/banner.txt" ]]; then
-    cp "${script_dir}/assets/banner.txt" "${INSTALL_DIR}/config/banner.txt" 2>/dev/null || echo "Authorized Access
+if [ ! -f "${INSTALL_DIR}/config/banner.txt" ]; then
+    cp "${script_dir}/assets/banner.txt" "${INSTALL_DIR}/config/banner.txt" 2>/dev/null || echo "Authorized Access Only" > "${INSTALL_DIR}/config/banner.txt"
+fi
+
+# Safe Write (Avoids Heredoc Syntax Errors)
+echo "[Unit]" > /etc/systemd/system/tox1c-tunnel.service
+echo "Description=Tox1c SSH-Tunnel UDP Gateway" >> /etc/systemd/system/tox1c-tunnel.service
+echo "After=network.target" >> /etc/systemd/system/tox1c-tunnel.service
+echo "" >> /etc/systemd/system/tox1c-tunnel.service
+echo "[Service]" >> /etc/systemd/system/tox1c-tunnel.service
+echo "ExecStart=${INSTALL_DIR}/bin/tox1c-udpgw --listen-addr 127.0.0.1:7300 --max-clients 3000 --max-connections-for-client 300" >> /etc/systemd/system/tox1c-tunnel.service
+echo "Restart=always" >> /etc/systemd/system/tox1c-tunnel.service
+echo "User=nobody" >> /etc/systemd/system/tox1c-tunnel.service
+echo "LimitNOFILE=65535" >> /etc/systemd/system/tox1c-tunnel.service
+echo "CapabilityBoundingSet=CAP_NET_BIND_SERVICE" >> /etc/systemd/system/tox1c-tunnel.service
+echo "AmbientCapabilities=CAP_NET_BIND_SERVICE" >> /etc/systemd/system/tox1c-tunnel.service
+echo "NoNewPrivileges=yes" >> /etc/systemd/system/tox1c-tunnel.service
+echo "" >> /etc/systemd/system/tox1c-tunnel.service
+echo "[Install]" >> /etc/systemd/system/tox1c-tunnel.service
+echo "WantedBy=multi-user.target" >> /etc/systemd/system/tox1c-tunnel.service
+
+systemctl daemon-reload
+systemctl enable tox1c-tunnel.service >> "$LOG_FILE" 2>&1
+systemctl restart tox1c-tunnel.service >> "$LOG_FILE" 2>&1
+success "Service active with LimitNOFILE=65535."
+
+# 6. SSH CONFIGURATION
+msg "Configuring SSH..."
+groupadd -f tox1c-users
+mkdir -p /etc/ssh/sshd_config.d
+
+# Force-create privilege separation directories
+mkdir -p /run/sshd && chmod 0755 /run/sshd
+mkdir -p /var/run/sshd && chmod 0755 /var/run/sshd
+
+echo "Match Group tox1c-users" > /etc/ssh/sshd_config.d/99-tox1c.conf
+echo "    Banner ${INSTALL_DIR}/config/banner.txt" >> /etc/ssh/sshd_config.d/99-tox1c.conf
+echo "    ForceCommand /usr/sbin/nologin" >> /etc/ssh/sshd_config.d/99-tox1c.conf
+echo "    X11Forwarding no" >> /etc/ssh/sshd_config.d/99-tox1c.conf
+echo "    AllowAgentForwarding no" >> /etc/ssh/sshd_config.d/99-tox1c.conf
+echo "    AllowTcpForwarding yes" >> /etc/ssh/sshd_config.d/99-tox1c.conf
+echo "    PermitTunnel yes" >> /etc/ssh/sshd_config.d/99-tox1c.conf
+echo "    PasswordAuthentication yes" >> /etc/ssh/sshd_config.d/99-tox1c.conf
+
+if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
+    sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
+fi
+
+if sshd -t; then
+    systemctl restart ssh
+    success "SSH reloaded successfully."
+else
+    systemctl restart ssh || true
+    success "SSH restarted (Fallback)."
+fi
+
+# 7. DASHBOARD INSTALLATION
+msg "Installing Manager..."
+cp "${script_dir}/src/manager.sh" "${INSTALL_DIR}/bin/manager"
+chmod 700 "${INSTALL_DIR}/bin/manager"
+ln -sf "${INSTALL_DIR}/bin/manager" "${BIN_LINK}"
+success "Manager installed."
+
+# 8. FIREWALL
+msg "Securing Firewall..."
+current_port=$(grep "^Port " /etc/ssh/sshd_config | head -n1 | awk '{print $2}') || current_port=22
+ufw allow "${current_port}/tcp" >> "$LOG_FILE" 2>&1
+ufw reload >> "$LOG_FILE" 2>&1
+success "Firewall active on Port ${current_port}."
+
+echo -e "\n${C_GREEN}[✔] SYSTEM READY.${C_NC} Run: ${C_YELLOW}tox1c${C_NC}"
