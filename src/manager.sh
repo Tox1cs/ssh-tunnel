@@ -2,16 +2,8 @@
 
 set -u
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly INSTALL_DIR="${INSTALL_DIR:-/opt/tox1c-sshtunnel}"
 readonly INTERFACE=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'dev \K\S+' || echo "eth0")
-
-source "$SCRIPT_DIR/lib/colors.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
-source "$SCRIPT_DIR/lib/metrics.sh"
-source "$SCRIPT_DIR/lib/users.sh"
-source "$SCRIPT_DIR/lib/system.sh"
-source "$SCRIPT_DIR/ui/render.sh"
 
 trap 'tput cnorm 2>/dev/null; exit 0' EXIT SIGINT SIGTERM
 

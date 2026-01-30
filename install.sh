@@ -164,7 +164,21 @@ else
 fi
 
 msg "Installing Manager..."
-cp "${script_dir}/src/manager.sh" "${INSTALL_DIR}/bin/manager"
+{
+    cat "${script_dir}/src/lib/colors.sh"
+    echo ""
+    cat "${script_dir}/src/lib/utils.sh"
+    echo ""
+    cat "${script_dir}/src/lib/metrics.sh"
+    echo ""
+    cat "${script_dir}/src/lib/users.sh"
+    echo ""
+    cat "${script_dir}/src/lib/system.sh"
+    echo ""
+    cat "${script_dir}/src/ui/render.sh"
+    echo ""
+    tail -n +2 "${script_dir}/src/manager.sh"
+} > "${INSTALL_DIR}/bin/manager"
 chmod 700 "${INSTALL_DIR}/bin/manager"
 ln -sf "${INSTALL_DIR}/bin/manager" "${BIN_LINK}"
 success "Manager installed."
