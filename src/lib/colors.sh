@@ -1,0 +1,17 @@
+#!/bin/bash
+
+readonly C_RED='\033[0;31m'
+readonly C_GREEN='\033[0;32m'
+readonly C_YELLOW='\033[1;33m'
+readonly C_BLUE='\033[0;34m'
+readonly C_CYAN='\033[0;36m'
+readonly C_PURPLE='\033[0;35m'
+readonly C_GRAY='\033[1;30m'
+readonly C_WHITE='\033[1;37m'
+readonly C_NC='\033[0m'
+readonly BG_BLUE='\033[44m'
+readonly BG_GREEN='\033[42m'
+readonly BG_RED='\033[41m'
+readonly BG_RESET='\033[49m'
+readonly BOLD='\033[1m'
+readonly DIM='\033[2m'
