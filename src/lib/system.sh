@@ -23,27 +23,35 @@ change_ssh_port() {
         return 1
     fi
     
-    if [ "$new_port" -lt 1024 ] && ! is_root; then
-        error "Ports below 1024 require root"
-        pause_menu
-        return 1
+    if grep -q "^Port " /etc/ssh/sshd_config; then
+        sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
+    else
+        sed -i "1i Port $new_port" /etc/ssh/sshd_config
     fi
     
-    sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config || echo "Port $new_port" >> /etc/ssh/sshd_config
-    
     if ! sshd -t 2>/dev/null; then
-        sed -i "s/^Port .*/Port $current_port/" /etc/ssh/sshd_config
+        if grep -q "^Port " /etc/ssh/sshd_config; then
+            sed -i "s/^Port .*/Port $current_port/" /etc/ssh/sshd_config
+        fi
         error "SSH config validation failed, reverted"
         pause_menu
         return 1
     fi
     
     ufw allow "$new_port"/tcp 2>/dev/null || true
-    ufw delete allow "$current_port"/tcp 2>/dev/null || true
+    [ "$current_port" != "$new_port" ] && ufw delete allow "$current_port"/tcp 2>/dev/null || true
     
     systemctl restart ssh 2>/dev/null
+    sleep 1
     
-    success "SSH port changed to $new_port"
+    if systemctl is-active --quiet ssh; then
+        success "SSH port changed to $new_port"
+    else
+        error "SSH failed to restart"
+        pause_menu
+        return 1
+    fi
+    
     warn "Update your SSH client: ssh -p $new_port user@host"
     pause_menu
 }
