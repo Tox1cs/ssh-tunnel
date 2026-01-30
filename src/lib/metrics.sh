@@ -1,7 +1,6 @@
 #!/bin/bash
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/colors.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/../ui/render.sh"
 
 get_cpu_usage() {
     local cpu_line=$(head -n1 /proc/stat)

@@ -45,17 +45,16 @@ draw_separator() {
 
 draw_status_badge() {
     local status=$1
-    local color=$2
     
     case "$status" in
         "ACTIVE"|"ONLINE"|"OK")
-            echo -e "${C_GREEN}● $status${C_NC}"
+            echo -e "${C_GREEN}● ACTIVE${C_NC}"
             ;;
         "OFFLINE"|"FAILED"|"ERROR")
-            echo -e "${C_RED}● $status${C_NC}"
+            echo -e "${C_RED}● OFFLINE${C_NC}"
             ;;
         *)
-            echo -e "${C_YELLOW}● $status${C_NC}"
+            echo -e "${C_YELLOW}● UNKNOWN${C_NC}"
             ;;
     esac
 }
